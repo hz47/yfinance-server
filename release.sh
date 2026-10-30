@@ -42,7 +42,7 @@ fi
 LOG=$(git log --pretty=format:"%h %s" $LAST_VERSION..HEAD)
 LOG=$(echo "$LOG" | sed -e 's/$/  /g')
 # read yfinance version from requirements.txt
-YFINANCE_VERSION=$(grep yfinance requirements.txt | cut -d'=' -f2)
+YFINANCE_VERSION=$(grep yfinance requirements.txt | sed -E 's/.*==[[:space:]]*//')
 
 # add to the change log
 # current version as a header

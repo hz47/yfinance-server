@@ -52,6 +52,25 @@ To execute request do `POST` request on the endpoint `/api/invoke/ticker` with t
 
 The server will try to init `yt.Ticker(symbol)` and call `method` with `params` on it. The response will be returned as JSON. More examples can be found by visiting the OpenAPI `/docs` endpoint.
 
+`method` can be a method (`history`, `get_income_stmt`, `option_chain`, ...) or a property (`info`, `financials`, `fast_info`, `options`, ...). Properties ignore `params`.
+
+### Other endpoints
+
+All of them are protected by the same API key.
+
+| Endpoint | yfinance call | Body example |
+|---|---|---|
+| `POST /api/invoke/sector` | `yf.Sector(key, **init).<method>` | `{"key": "technology", "method": "top_companies"}` |
+| `POST /api/invoke/industry` | `yf.Industry(key, **init).<method>` | `{"key": "semiconductors", "method": "overview"}` |
+| `POST /api/invoke/market` | `yf.Market(key, **init).<method>` | `{"key": "US", "method": "status"}` |
+| `POST /api/invoke/search` | `yf.Search(key, **init).<method>` | `{"key": "nvidia", "method": "quotes", "init": {"max_results": 5}}` |
+| `POST /api/invoke/lookup` | `yf.Lookup(key, **init).<method>(**params)` | `{"key": "apple", "method": "get_stock", "params": {"count": 10}}` |
+| `POST /api/download` | `yf.download(tickers, **params)` | `{"tickers": ["AAPL", "MSFT"], "params": {"period": "5d"}}` |
+| `GET /api/screen` | list of predefined screeners | |
+| `POST /api/screen` | `yf.screen(query, **params)` | `{"query": "day_gainers", "params": {"count": 25}}` |
+
+`/api/download` returns `{field: {ticker: {date: value}}}`. Missing values (`NaN`) are returned as `null`.
+
 ### Request Examples
 #### Get info about a ticker
 ```json

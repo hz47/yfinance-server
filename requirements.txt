@@ -1,2 +1,5 @@
-yfinance == 0.2.40
+yfinance==1.7.0
 fastapi
+uvicorn
+pydantic
+pandas
