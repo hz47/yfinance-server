@@ -14,6 +14,10 @@ COPY . .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir --upgrade -r requirements.txt
 
+# Run as an unprivileged user
+RUN useradd --create-home --uid 10001 app
+USER app
+
 # Make port 8000 available to the world outside this container
 EXPOSE 8000
 

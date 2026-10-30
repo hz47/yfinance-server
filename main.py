@@ -2,19 +2,38 @@ import yfinance as yf
 from typing import Annotated
 from enum import Enum
 from pydantic import BaseModel
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from typing import Union, List, Optional
 import numpy as np
 import pandas as pd
 import datetime
+import hmac
+import logging
 import math
 import os
+import re
 
-app = FastAPI()
+# API docs reveal every endpoint, so they are off unless explicitly enabled
+docsEnabled = os.getenv('ENABLE_DOCS', '').lower() in ('1', 'true', 'yes')
+app = FastAPI(
+    docs_url='/docs' if docsEnabled else None,
+    redoc_url='/redoc' if docsEnabled else None,
+    openapi_url='/openapi.json' if docsEnabled else None,
+)
 
-apiKey1 = os.getenv('API_KEY1')
-apiKey2 = os.getenv('API_KEY2')
-apiKeyPresent = apiKey1 is not None or apiKey2 is not None
+# two keys so one can be rotated while the other stays valid; empty values are ignored
+apiKeys = [k for k in (os.getenv('API_KEY1'), os.getenv('API_KEY2')) if k]
+
+
+class RedactApiKeyFilter(logging.Filter):
+    # keep ?api_key=... out of the uvicorn access log
+    def filter(self, record):
+        if isinstance(record.args, tuple):
+            record.args = tuple(re.sub(r'(api_key=)[^&\s]+', r'\1***', a) if isinstance(a, str) else a for a in record.args)
+        return True
+
+
+logging.getLogger('uvicorn.access').addFilter(RedactApiKeyFilter())
 
 # attributes that open long-lived connections or expose internals, never callable over the API
 BLOCKED_METHODS = {'live', 'session'}
@@ -115,16 +134,24 @@ class ScreenRequest(BaseModel):
     }
 
 
-def check_api_key(x_api_key: Annotated[str | None, Header()] = None):
-    if apiKeyPresent:
-        if x_api_key is None:
-            raise HTTPException(
-                status_code=401, detail="API key is missing"
-            )
-        if x_api_key != apiKey1 and x_api_key != apiKey2:
-            raise HTTPException(
-                status_code=403, detail="API key is invalid"
-            )
+def check_api_key(
+    x_api_key: Annotated[str | None, Header()] = None,
+    api_key: Annotated[str | None, Query()] = None,
+):
+    # fail closed: without a configured key nothing but /health is served
+    if not apiKeys:
+        raise HTTPException(
+            status_code=503, detail="API key is not configured on the server"
+        )
+    provided = x_api_key or api_key
+    if not provided:
+        raise HTTPException(
+            status_code=401, detail="API key is missing"
+        )
+    if not any(hmac.compare_digest(provided.encode(), k.encode()) for k in apiKeys):
+        raise HTTPException(
+            status_code=403, detail="API key is invalid"
+        )
 
 
 def to_jsonable(value):
@@ -192,7 +219,13 @@ def invoke(target, method_name: str, params: Optional[dict]):
     return to_jsonable(result)
 
 
-@app.get("/api/info")
+@app.get("/health")
+def health():
+    # unauthenticated liveness check for Coolify, reveals nothing
+    return {"status": "ok"}
+
+
+@app.get("/api/info", dependencies=[Depends(check_api_key)])
 def read_root():
     # read version from file
     version = None

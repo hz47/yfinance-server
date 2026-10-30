@@ -21,11 +21,16 @@ pip install -r requirements.txt
 fastapi dev main.py
 ```
 
-Open `https://localhost:8000/docs` in your browser to see the API documentation and try out the endpoints.
+Run with `ENABLE_DOCS=true` and open `http://localhost:8000/docs` in your browser to see the API documentation and try out the endpoints.
 
 ### API KEY support
-To protect invoke request from unauthorized access, you can set an API key in the environment variable `API_KEY1` and `API_KEY2`(for rotation support).
-The server will check the `X-API-KEY` header in the request and compare it with the environment variable. If the keys match, the request will be processed, otherwise, the server will return a 401 status code.
+Every endpoint except `GET /health` requires an API key. Set it in the environment variable `API_KEY1` and optionally `API_KEY2` (for rotation support).
+Without any key configured the server refuses all requests with 503.
+
+Send the key in the `X-API-KEY` header (preferred) or as the `api_key` query parameter (`/api/info?api_key=...`). The query value is masked in the access log, but URLs can still end up in proxy logs or browser history, so use the header from scripts.
+A missing key returns 401, a wrong key 403. Always call the server over HTTPS, otherwise the key is sent in clear text.
+
+The OpenAPI docs (`/docs`, `/redoc`, `/openapi.json`) are disabled by default. Set `ENABLE_DOCS=true` to turn them on, e.g. locally.
 
 ```bash
 docker pull yarhrn/yfinance-server:latest
