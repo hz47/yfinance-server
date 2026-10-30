@@ -18,6 +18,8 @@ apiKeyPresent = apiKey1 is not None or apiKey2 is not None
 
 # attributes that open long-lived connections or expose internals, never callable over the API
 BLOCKED_METHODS = {'live', 'session'}
+# yfinance arguments that control networking/threads, never taken from the request
+BLOCKED_PARAMS = {'session', 'proxy', 'timeout', 'threads'}
 
 
 class InvokeRequest(BaseModel):
@@ -160,6 +162,15 @@ def to_jsonable(value):
     return str(value)
 
 
+def safe_kwargs(kwargs: Optional[dict]) -> dict:
+    blocked = BLOCKED_PARAMS.intersection(kwargs or {})
+    if blocked:
+        raise HTTPException(
+            status_code=400, detail=f"Parameter not allowed: {', '.join(sorted(blocked))}"
+        )
+    return kwargs or {}
+
+
 def invoke(target, method_name: str, params: Optional[dict]):
     if method_name.startswith('_') or method_name in BLOCKED_METHODS:
         raise HTTPException(
@@ -172,7 +183,7 @@ def invoke(target, method_name: str, params: Optional[dict]):
         )
     if callable(method):
         try:
-            result = method(**(params or {}))
+            result = method(**safe_kwargs(params))
         except (TypeError, ValueError) as e:
             raise HTTPException(status_code=400, detail=str(e))
     else:
@@ -201,7 +212,7 @@ def read_item(request: InvokeRequest):
 @app.post("/api/invoke/{kind}", dependencies=[Depends(check_api_key)])
 def invoke_object(kind: ObjectKind, request: ObjectInvokeRequest):
     try:
-        target = OBJECT_CLASSES[kind](request.key, **(request.init or {}))
+        target = OBJECT_CLASSES[kind](request.key, **safe_kwargs(request.init))
     except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return invoke(target, request.method, request.params)
@@ -209,7 +220,7 @@ def invoke_object(kind: ObjectKind, request: ObjectInvokeRequest):
 
 @app.post("/api/download", dependencies=[Depends(check_api_key)])
 def download(request: DownloadRequest):
-    params = {**(request.params or {}), "progress": False}
+    params = {**safe_kwargs(request.params), "progress": False}
     try:
         result = yf.download(request.tickers, **params)
     except (TypeError, ValueError) as e:
@@ -229,7 +240,7 @@ def screen(request: ScreenRequest):
             status_code=404, detail="Screener not found"
         )
     try:
-        result = yf.screen(request.query, **(request.params or {}))
+        result = yf.screen(request.query, **safe_kwargs(request.params))
     except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return to_jsonable(result)
