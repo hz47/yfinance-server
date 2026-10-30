@@ -11,7 +11,7 @@ import hmac
 import logging
 import math
 import os
-import re
+from urllib.parse import parse_qsl, urlencode
 
 # API docs reveal every endpoint, so they are off unless explicitly enabled
 docsEnabled = os.getenv('ENABLE_DOCS', '').lower() in ('1', 'true', 'yes')
@@ -25,11 +25,20 @@ app = FastAPI(
 apiKeys = [k for k in (os.getenv('API_KEY1'), os.getenv('API_KEY2')) if k]
 
 
+def redact_api_key(path: str) -> str:
+    # parse the query like FastAPI does, so encoded names such as api%5Fkey are caught too
+    base, sep, query = path.partition('?')
+    if not sep:
+        return path
+    pairs = [(k, '***' if k.strip() == 'api_key' else v) for k, v in parse_qsl(query, keep_blank_values=True)]
+    return f"{base}?{urlencode(pairs, safe='*')}"
+
+
 class RedactApiKeyFilter(logging.Filter):
     # keep ?api_key=... out of the uvicorn access log
     def filter(self, record):
         if isinstance(record.args, tuple):
-            record.args = tuple(re.sub(r'(api_key=)[^&\s]+', r'\1***', a) if isinstance(a, str) else a for a in record.args)
+            record.args = tuple(redact_api_key(a) if isinstance(a, str) and '?' in a else a for a in record.args)
         return True
 
 
