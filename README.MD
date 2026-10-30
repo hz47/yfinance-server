@@ -30,7 +30,7 @@ Without any key configured the server refuses all requests with 503.
 Send the key in the `X-API-KEY` header (preferred) or as the `api_key` query parameter (`/api/info?api_key=...`). The query value is masked in the access log, but URLs can still end up in proxy logs or browser history, so use the header from scripts.
 A missing key returns 401, a wrong key 403. Always call the server over HTTPS, otherwise the key is sent in clear text.
 
-The OpenAPI docs (`/docs`, `/redoc`, `/openapi.json`) are disabled by default. Set `ENABLE_DOCS=true` to turn them on, e.g. locally.
+The OpenAPI docs are behind the API key: open `/docs?api_key=...` (the schema at `/openapi.json` needs the key too). Set `ENABLE_DOCS=true` to make `/docs`, `/redoc` and `/openapi.json` public, e.g. locally.
 
 ```bash
 docker pull yarhrn/yfinance-server:latest

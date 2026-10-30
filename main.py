@@ -3,6 +3,7 @@ from typing import Annotated
 from enum import Enum
 from pydantic import BaseModel
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.openapi.docs import get_swagger_ui_html
 from typing import Union, List, Optional
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ import math
 import os
 from urllib.parse import parse_qsl, urlencode
 
-# API docs reveal every endpoint, so they are off unless explicitly enabled
+# API docs reveal every endpoint: public only with ENABLE_DOCS, otherwise served behind the API key (see /docs below)
 docsEnabled = os.getenv('ENABLE_DOCS', '').lower() in ('1', 'true', 'yes')
 app = FastAPI(
     docs_url='/docs' if docsEnabled else None,
@@ -286,3 +287,24 @@ def screen(request: ScreenRequest):
     except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     return to_jsonable(result)
+
+
+if not docsEnabled:
+    @app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(check_api_key)])
+    def openapi_schema():
+        return app.openapi()
+
+    @app.get("/docs", include_in_schema=False, dependencies=[Depends(check_api_key)])
+    def swagger_docs(
+        x_api_key: Annotated[str | None, Header()] = None,
+        api_key: Annotated[str | None, Query()] = None,
+    ):
+        # the page fetches the schema with the same key it was opened with
+        response = get_swagger_ui_html(
+            openapi_url=f"/openapi.json?{urlencode({'api_key': x_api_key or api_key})}",
+            title="yfinance-server",
+        )
+        # keep the key in the page URL out of caches and Referer headers
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        return response
