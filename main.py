@@ -2,12 +2,14 @@ import yfinance as yf
 from typing import Annotated
 from enum import Enum
 from pydantic import BaseModel
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import RedirectResponse
 from typing import Union, List, Optional
 import numpy as np
 import pandas as pd
 import datetime
+import hashlib
 import hmac
 import logging
 import math
@@ -289,22 +291,55 @@ def screen(request: ScreenRequest):
     return to_jsonable(result)
 
 
-if not docsEnabled:
-    @app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(check_api_key)])
-    def openapi_schema():
-        return app.openapi()
 
-    @app.get("/docs", include_in_schema=False, dependencies=[Depends(check_api_key)])
-    def swagger_docs(
+# docs login: /docs?api_key=... sets an HttpOnly cookie with a token derived from the key and
+# redirects to /docs, so neither the URL nor the page (which loads Swagger from a CDN) holds the key
+DOCS_COOKIE = 'yf_docs'
+SWAGGER_UI_VERSION = '5.17.14'
+
+
+def docs_tokens() -> set:
+    return {hmac.new(k.encode(), b'yfinance-server-docs', hashlib.sha256).hexdigest() for k in apiKeys}
+
+
+def has_docs_cookie(request: Request) -> bool:
+    token = request.cookies.get(DOCS_COOKIE)
+    return bool(token) and any(hmac.compare_digest(token, t) for t in docs_tokens())
+
+
+if not docsEnabled:
+    @app.get("/openapi.json", include_in_schema=False)
+    def openapi_schema(
+        request: Request,
         x_api_key: Annotated[str | None, Header()] = None,
         api_key: Annotated[str | None, Query()] = None,
     ):
-        # the page fetches the schema with the same key it was opened with
-        response = get_swagger_ui_html(
-            openapi_url=f"/openapi.json?{urlencode({'api_key': x_api_key or api_key})}",
-            title="yfinance-server",
-        )
-        # keep the key in the page URL out of caches and Referer headers
+        if not has_docs_cookie(request):
+            check_api_key(x_api_key, api_key)
+        return app.openapi()
+
+    @app.get("/docs", include_in_schema=False)
+    def swagger_docs(
+        request: Request,
+        x_api_key: Annotated[str | None, Header()] = None,
+        api_key: Annotated[str | None, Query()] = None,
+    ):
+        if x_api_key or api_key:
+            check_api_key(x_api_key, api_key)
+            # same key -> same token, so any valid key gets a cookie
+            key = x_api_key or api_key
+            token = hmac.new(key.encode(), b'yfinance-server-docs', hashlib.sha256).hexdigest()
+            response = RedirectResponse('/docs', status_code=303)
+            response.set_cookie(DOCS_COOKIE, token, max_age=3600, httponly=True, secure=True, samesite='strict')
+        elif has_docs_cookie(request):
+            response = get_swagger_ui_html(
+                openapi_url='/openapi.json',
+                title='yfinance-server',
+                swagger_js_url=f'https://cdn.jsdelivr.net/npm/swagger-ui-dist@{SWAGGER_UI_VERSION}/swagger-ui-bundle.js',
+                swagger_css_url=f'https://cdn.jsdelivr.net/npm/swagger-ui-dist@{SWAGGER_UI_VERSION}/swagger-ui.css',
+            )
+        else:
+            check_api_key(None, None)
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Referrer-Policy'] = 'no-referrer'
         return response
