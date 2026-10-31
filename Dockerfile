@@ -10,9 +10,11 @@ WORKDIR /usr/src/app
 # Copy the current directory contents into the container at /usr/src/app
 COPY . .
 
-# Install any needed packages, upgrading pip/setuptools first so the image doesn't ship stale vulnerable copies
+# Install any needed packages, then remove the installer tooling: the app doesn't need it at
+# runtime, and pip bundles its own urllib3/msgpack copies that lag behind security fixes
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir --upgrade -r requirements.txt
+    && pip install --no-cache-dir --upgrade -r requirements.txt \
+    && pip uninstall -y setuptools wheel pip
 
 # Run as an unprivileged user
 RUN useradd --create-home --uid 10001 app
